@@ -17,6 +17,7 @@
 package com.urswolfer.intellij.plugin.gerrit.ui;
 
 import com.google.inject.AbstractModule;
+import com.urswolfer.intellij.plugin.gerrit.ui.filter.GerritFilterModule;
 
 /**
  * @author Thomas Forrer
@@ -24,8 +25,10 @@ import com.google.inject.AbstractModule;
 public class GerritUiModule extends AbstractModule {
     @Override
     protected void configure() {
+        install(new GerritFilterModule());
         bind(GerritChangeListPanel.class);
         bind(SettingsPanel.class);
         bind(GerritSettingsConfigurable.class);
+        bind(GerritUpdatesNotificationComponent.class).asEagerSingleton();
     }
 }

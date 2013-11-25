@@ -33,6 +33,7 @@ import java.util.concurrent.Callable;
 /**
  * @author Urs Wolfer
  */
+@SuppressWarnings("ComponentNotRegistered") // proxy class below is registered
 public class FetchAction extends AbstractChangeAction {
     private final GerritGitUtil gerritGitUtil;
     @Nullable
@@ -69,7 +70,7 @@ public class FetchAction extends AbstractChangeAction {
         gerritGitUtil.fetchChange(project, gitRepository.get(), ref, mySuccessCallable);
     }
 
-    public class Proxy extends FetchAction {
+    public static class Proxy extends FetchAction {
         private final FetchAction delegate;
 
         public Proxy() {
