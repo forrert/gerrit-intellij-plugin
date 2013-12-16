@@ -17,9 +17,12 @@
 package com.urswolfer.intellij.plugin.gerrit.ui.action;
 
 import com.google.common.base.Optional;
+import com.google.inject.Inject;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.project.Project;
+import com.intellij.util.Consumer;
+import com.urswolfer.intellij.plugin.gerrit.GerritModule;
 import com.urswolfer.intellij.plugin.gerrit.git.GerritGitUtil;
 import com.urswolfer.intellij.plugin.gerrit.rest.bean.ChangeInfo;
 import icons.Git4ideaIcons;
@@ -29,7 +32,12 @@ import java.util.concurrent.Callable;
 /**
  * @author Urs Wolfer
  */
+@SuppressWarnings("ComponentNotRegistered") // proxy class below is registered
 public class CherryPickAction extends AbstractChangeAction {
+    @Inject
+    private GerritGitUtil gerritGitUtil;
+    @Inject
+    private FetchAction fetchAction;
 
     public CherryPickAction() {
         super("Cherry-Pick (No Commit)", "Cherry-Pick change into active changelist without committing", Git4ideaIcons.CherryPick);
@@ -37,23 +45,37 @@ public class CherryPickAction extends AbstractChangeAction {
 
     @Override
     public void actionPerformed(final AnActionEvent anActionEvent) {
-        Optional<ChangeInfo> selectedChange = getSelectedChange(anActionEvent);
+        final Optional<ChangeInfo> selectedChange = getSelectedChange(anActionEvent);
         if (!selectedChange.isPresent()) {
             return;
         }
         final Project project = anActionEvent.getData(PlatformDataKeys.PROJECT);
 
-        final Optional<ChangeInfo> changeDetails = getChangeDetail(selectedChange.get(), project);
-        if (!changeDetails.isPresent()) return;
-
-        Callable<Void> successCallable = new Callable<Void>() {
+        getChangeDetail(selectedChange.get(), project, new Consumer<ChangeInfo>() {
             @Override
-            public Void call() throws Exception {
-                final Project project = anActionEvent.getData(PlatformDataKeys.PROJECT);
-                GerritGitUtil.cherryPickChange(project, changeDetails.get());
-                return null;
+            public void consume(final ChangeInfo changeInfo) {
+                Callable<Void> successCallable = new Callable<Void>() {
+                    @Override
+                    public Void call() throws Exception {
+                        gerritGitUtil.cherryPickChange(project, changeInfo);
+                        return null;
+                    }
+                };
+                fetchAction.fetchChange(selectedChange.get(), project, successCallable);
             }
-        };
-        new FetchAction(successCallable).actionPerformed(anActionEvent);
+        });
+    }
+
+    public static class Proxy extends CherryPickAction {
+        private final CherryPickAction delegate;
+
+        public Proxy() {
+            delegate = GerritModule.getInstance(CherryPickAction.class);
+        }
+
+        @Override
+        public void actionPerformed(AnActionEvent e) {
+            delegate.actionPerformed(e);
+        }
     }
 }

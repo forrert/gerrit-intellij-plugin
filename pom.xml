@@ -4,7 +4,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.urswolfer.intellij.plugin.gerrit</groupId>
   <artifactId>gerrit-intellij-plugin</artifactId>
-  <version>0.3.1</version>
+  <version>0.4.1</version>
 
   <name>gerrit-intellij-plugin</name>
   <description>Gerrit Code Review Tool for IntelliJ.
@@ -66,6 +66,18 @@
       <version>${idea.version}</version>
       <scope>provided</scope> <!-- compile scope required for form plugin building; excluded in assembly -->
     </dependency>
+    <dependency>
+      <groupId>com.google.inject</groupId>
+      <artifactId>guice</artifactId>
+      <version>4.0-beta</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.inject.extensions</groupId>
+      <artifactId>guice-multibindings</artifactId>
+      <version>4.0-beta</version>
+      <scope>compile</scope>
+    </dependency>
 
     <dependency>
       <groupId>commons-httpclient</groupId>
@@ -102,6 +114,12 @@
       <groupId>org.testng</groupId>
       <artifactId>testng</artifactId>
       <version>6.8</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.easymock</groupId>
+      <artifactId>easymock</artifactId>
+      <version>3.2</version>
       <scope>test</scope>
     </dependency>
 

@@ -17,18 +17,21 @@
 
 package com.urswolfer.intellij.plugin.gerrit;
 
+import com.google.common.base.Optional;
 import com.intellij.ide.passwordSafe.MasterPasswordUnavailableException;
 import com.intellij.ide.passwordSafe.PasswordSafe;
 import com.intellij.ide.passwordSafe.PasswordSafeException;
 import com.intellij.ide.passwordSafe.impl.PasswordSafeImpl;
 import com.intellij.ide.passwordSafe.impl.providers.masterKey.MasterKeyPasswordSafe;
-import com.intellij.openapi.components.*;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
+import com.intellij.openapi.components.StoragePathMacros;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.ui.Messages;
-import com.urswolfer.intellij.plugin.gerrit.rest.GerritUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -49,60 +52,61 @@ import java.util.Collection;
                         file = StoragePathMacros.APP_CONFIG + "/gerrit_settings.xml"
                 )}
 )
-public class GerritSettings implements PersistentStateComponent<Element> {
+public class GerritSettings implements PersistentStateComponent<Element>, GerritAuthData {
 
     private static final String GERRIT_SETTINGS_TAG = "GerritSettings";
     private static final String LOGIN = "Login";
     private static final String HOST = "Host";
     private static final String AUTOMATIC_REFRESH = "AutomaticRefresh";
+    private static final String LIST_ALL_CHANGES = "ListAllChanges";
     private static final String REFRESH_TIMEOUT = "RefreshTimeout";
     private static final String REVIEW_NOTIFICATIONS = "ReviewNotifications";
-    public static final String GERRIT_SETTINGS_PASSWORD_KEY = "GERRIT_SETTINGS_PASSWORD_KEY";
+    private static final String GERRIT_SETTINGS_PASSWORD_KEY = "GERRIT_SETTINGS_PASSWORD_KEY";
     private static final String TRUSTED_HOSTS = "GERRIT_TRUSTED_HOSTS";
     private static final String TRUSTED_HOST = "HOST";
     private static final String TRUSTED_URL = "URL";
 
-    private String myLogin;
-    private String myHost;
-    private boolean myAutomaticRefresh;
-    private int myRefreshTimeout;
-    private boolean myRefreshNotifications;
-    private Collection<String> myTrustedHosts = new ArrayList<String>();
+    private String login;
+    private String host;
+    private boolean listAllChanges;
+    private boolean automaticRefresh;
+    private int refreshTimeout;
+    private boolean refreshNotifications;
+    private Collection<String> trustedHosts = new ArrayList<String>();
 
-    private static final Logger LOG = GerritUtil.LOG;
+    private Logger log;
+
     private boolean passwordChanged = false;
 
     // Once master password is refused, do not ask for it again
     private boolean masterPasswordRefused = false;
 
-
-    public static GerritSettings getInstance() {
-        return ServiceManager.getService(GerritSettings.class);
-    }
+    private Optional<String> cachedPassword = Optional.absent();
 
     public Element getState() {
-        LOG.assertTrue(!ProgressManager.getInstance().hasProgressIndicator(), "Password should not be accessed under modal progress");
+        log.assertTrue(!ProgressManager.getInstance().hasProgressIndicator(), "Password should not be accessed under modal progress");
 
         try {
             if (passwordChanged && !masterPasswordRefused) {
                 PasswordSafe.getInstance().storePassword(null, GerritSettings.class, GERRIT_SETTINGS_PASSWORD_KEY, getPassword());
             }
         } catch (MasterPasswordUnavailableException e) {
-            LOG.info("Couldn't store password for key [" + GERRIT_SETTINGS_PASSWORD_KEY + "]", e);
+            log.info("Couldn't store password for key [" + GERRIT_SETTINGS_PASSWORD_KEY + "]", e);
             masterPasswordRefused = true;
         } catch (Exception e) {
             Messages.showErrorDialog("Error happened while storing password for gerrit", "Error");
-            LOG.info("Couldn't get password for key [" + GERRIT_SETTINGS_PASSWORD_KEY + "]", e);
+            log.info("Couldn't get password for key [" + GERRIT_SETTINGS_PASSWORD_KEY + "]", e);
         }
         passwordChanged = false;
         final Element element = new Element(GERRIT_SETTINGS_TAG);
-        element.setAttribute(LOGIN, getLogin());
-        element.setAttribute(HOST, getHost());
+        element.setAttribute(LOGIN, (getLogin() != null ? getLogin() : ""));
+        element.setAttribute(HOST, (getHost() != null ? getHost() : ""));
+        element.setAttribute(LIST_ALL_CHANGES, "" + getListAllChanges());
         element.setAttribute(AUTOMATIC_REFRESH, "" + getAutomaticRefresh());
         element.setAttribute(REFRESH_TIMEOUT, "" + getRefreshTimeout());
         element.setAttribute(REVIEW_NOTIFICATIONS, "" + getReviewNotifications());
         Element trustedHosts = new Element(TRUSTED_HOSTS);
-        for (String host : myTrustedHosts) {
+        for (String host : this.trustedHosts) {
             Element hostEl = new Element(TRUSTED_HOST);
             hostEl.setAttribute(TRUSTED_URL, host);
             trustedHosts.addContent(hostEl);
@@ -117,37 +121,59 @@ public class GerritSettings implements PersistentStateComponent<Element> {
             setLogin(element.getAttributeValue(LOGIN));
             setHost(element.getAttributeValue(HOST));
 
-            String automaticRefreshValue = element.getAttributeValue(AUTOMATIC_REFRESH);
-            if (automaticRefreshValue != null) {
-                setAutomaticRefresh(Boolean.valueOf(automaticRefreshValue));
-            }
+            setListAllChanges(getBooleanValue(element, LIST_ALL_CHANGES));
+            setAutomaticRefresh(getBooleanValue(element, AUTOMATIC_REFRESH));
+            setRefreshTimeout(getIntegerValue(element, REFRESH_TIMEOUT));
+            setReviewNotifications(getBooleanValue(element, REVIEW_NOTIFICATIONS));
 
-            String refreshTimeoutValue = element.getAttributeValue(REFRESH_TIMEOUT);
-            if (refreshTimeoutValue != null) {
-                setRefreshTimeout(Integer.valueOf(refreshTimeoutValue));
-            }
-
-            String reviewNotificationsValue = element.getAttributeValue(REVIEW_NOTIFICATIONS);
-            if (reviewNotificationsValue != null) {
-                setReviewNotifications(Boolean.valueOf(reviewNotificationsValue));
-            }
-
-            for (Object trustedHost : element.getChildren(TRUSTED_HOSTS)) {
-                addTrustedHost(trustedHost.toString());
+            for (Object trustedHostsObj : element.getChildren(TRUSTED_HOSTS)) {
+                Element trustedHosts = (Element) trustedHostsObj;
+                for (Object trustedHostObj : trustedHosts.getChildren()) {
+                    Element trustedHost = (Element) trustedHostObj;
+                    addTrustedHost(trustedHost.getAttributeValue(TRUSTED_URL));
+                }
             }
         } catch (Exception e) {
-            LOG.error("Error happened while loading gerrit settings: " + e);
+            log.error("Error happened while loading gerrit settings: " + e);
         }
     }
 
-    @Nullable
-    public String getLogin() {
-        return myLogin;
+    private boolean getBooleanValue(Element element, String attributeName) {
+        String attributeValue = element.getAttributeValue(attributeName);
+        if (attributeValue != null) {
+            return Boolean.valueOf(attributeValue);
+        } else {
+            return false;
+        }
     }
 
+    private int getIntegerValue(Element element, String attributeName) {
+        String attributeValue = element.getAttributeValue(attributeName);
+        if (attributeValue != null) {
+            return Integer.valueOf(attributeValue);
+        } else {
+            return 0;
+        }
+    }
+
+    @Override
+    @Nullable
+    public String getLogin() {
+        return login;
+    }
+
+    public void preloadPassword() {
+        cachedPassword = Optional.of(getPassword());
+    }
+
+    @Override
     @NotNull
     public String getPassword() {
-        LOG.assertTrue(!ProgressManager.getInstance().hasProgressIndicator(), "Password should not be accessed under modal progress");
+        boolean hasProgressIndicator = ProgressManager.getInstance().hasProgressIndicator();
+        if (hasProgressIndicator) {
+            log.assertTrue(cachedPassword.isPresent(), "Password must be preloaded when accessed under modal progress");
+            return cachedPassword.get();
+        }
         String password;
         final Project project = ProjectManager.getInstance().getDefaultProject();
         final PasswordSafeImpl passwordSafe = (PasswordSafeImpl) PasswordSafe.getInstance();
@@ -164,7 +190,7 @@ public class GerritSettings implements PersistentStateComponent<Element> {
                 password = masterKeyProvider.getPassword(project, GerritSettings.class, GERRIT_SETTINGS_PASSWORD_KEY);
             }
         } catch (PasswordSafeException e) {
-            LOG.info("Couldn't get password for key [" + GERRIT_SETTINGS_PASSWORD_KEY + "]", e);
+            log.info("Couldn't get password for key [" + GERRIT_SETTINGS_PASSWORD_KEY + "]", e);
             masterPasswordRefused = true;
             password = "";
         }
@@ -173,24 +199,33 @@ public class GerritSettings implements PersistentStateComponent<Element> {
         return password != null ? password : "";
     }
 
+    @Override
     public String getHost() {
-        return myHost;
+        return host;
+    }
+
+    public boolean getListAllChanges() {
+        return listAllChanges;
+    }
+
+    public void setListAllChanges(boolean listAllChanges) {
+        this.listAllChanges = listAllChanges;
     }
 
     public boolean getAutomaticRefresh() {
-        return myAutomaticRefresh;
+        return automaticRefresh;
     }
 
     public int getRefreshTimeout() {
-        return myRefreshTimeout;
+        return refreshTimeout;
     }
 
     public boolean getReviewNotifications() {
-        return myRefreshNotifications;
+        return refreshNotifications;
     }
 
     public void setLogin(final String login) {
-        myLogin = login != null ? login : "";
+        this.login = login != null ? login : "";
     }
 
     public void setPassword(final String password) {
@@ -198,34 +233,38 @@ public class GerritSettings implements PersistentStateComponent<Element> {
         try {
             PasswordSafe.getInstance().storePassword(null, GerritSettings.class, GERRIT_SETTINGS_PASSWORD_KEY, password != null ? password : "");
         } catch (PasswordSafeException e) {
-            LOG.info("Couldn't get password for key [" + GERRIT_SETTINGS_PASSWORD_KEY + "]", e);
+            log.info("Couldn't get password for key [" + GERRIT_SETTINGS_PASSWORD_KEY + "]", e);
         }
     }
 
     public void setHost(final String host) {
-        myHost = host;
+        this.host = host;
     }
 
     public void setAutomaticRefresh(final boolean automaticRefresh) {
-        myAutomaticRefresh = automaticRefresh;
+        this.automaticRefresh = automaticRefresh;
     }
 
     public void setRefreshTimeout(final int refreshTimeout) {
-        myRefreshTimeout = refreshTimeout;
+        this.refreshTimeout = refreshTimeout;
     }
 
     public void setReviewNotifications(final boolean reviewNotifications) {
-        myRefreshNotifications = reviewNotifications;
+        refreshNotifications = reviewNotifications;
     }
 
     @NotNull
     public Collection<String> getTrustedHosts() {
-        return myTrustedHosts;
+        return trustedHosts;
     }
 
     public void addTrustedHost(String host) {
-        if (!myTrustedHosts.contains(host)) {
-            myTrustedHosts.add(host);
+        if (!trustedHosts.contains(host)) {
+            trustedHosts.add(host);
         }
+    }
+
+    public void setLog(Logger log) {
+        this.log = log;
     }
 }

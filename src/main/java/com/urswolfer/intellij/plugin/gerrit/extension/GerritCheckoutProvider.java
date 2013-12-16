@@ -14,9 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.urswolfer.intellij.plugin.gerrit.extension;
 
 import com.google.common.io.Files;
+import com.google.inject.Inject;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
@@ -24,21 +26,25 @@ import com.intellij.openapi.vcs.CheckoutProvider;
 import com.intellij.openapi.vcs.VcsKey;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.urswolfer.intellij.plugin.gerrit.GerritModule;
 import com.urswolfer.intellij.plugin.gerrit.GerritSettings;
 import com.urswolfer.intellij.plugin.gerrit.rest.GerritApiUtil;
 import com.urswolfer.intellij.plugin.gerrit.rest.GerritUtil;
+import com.urswolfer.intellij.plugin.gerrit.rest.HttpStatusException;
 import com.urswolfer.intellij.plugin.gerrit.rest.bean.ProjectInfo;
+import com.urswolfer.intellij.plugin.gerrit.util.NotificationBuilder;
+import com.urswolfer.intellij.plugin.gerrit.util.NotificationService;
 import git4idea.actions.BasicAction;
 import git4idea.checkout.GitCheckoutProvider;
 import git4idea.checkout.GitCloneDialog;
 import git4idea.commands.Git;
 import org.apache.commons.httpclient.Header;
 import org.apache.commons.httpclient.HttpMethod;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -51,20 +57,35 @@ import java.util.List;
  */
 public class GerritCheckoutProvider implements CheckoutProvider {
 
-    private static Logger LOG = GerritUtil.LOG;
+    @Inject
+    private LocalFileSystem localFileSystem;
+    @Inject
+    private GerritUtil gerritUtil;
+    @Inject
+    private GerritSettings gerritSettings;
+    @Inject
+    private GerritApiUtil gerritApiUtil;
+    @Inject
+    private Logger log;
+    @Inject
+    private NotificationService notificationService;
 
     @Override
     public void doCheckout(@NotNull final Project project, @Nullable final Listener listener) {
-        if (!GerritUtil.testGitExecutable(project)) {
+        if (!gerritUtil.testGitExecutable(project)) {
             return;
         }
         BasicAction.saveAll();
         List<ProjectInfo> availableProjects = null;
         try {
-            availableProjects = GerritUtil.getAvailableProjects(project);
+            availableProjects = gerritUtil.getAvailableProjects(project);
         } catch (Exception e) {
-            LOG.info(e);
-            GerritUtil.notifyError(project, "Couldn't get the list of Gerrit repositories", GerritUtil.getErrorTextFromException(e));
+            log.info(e);
+            NotificationBuilder notification = new NotificationBuilder(
+                    project,
+                    "Couldn't get the list of Gerrit repositories",
+                    gerritUtil.getErrorTextFromException(e));
+            notificationService.notifyError(notification);
         }
         if (availableProjects == null) {
             return;
@@ -79,14 +100,14 @@ public class GerritCheckoutProvider implements CheckoutProvider {
         final GitCloneDialog dialog = new GitCloneDialog(project);
         // Add predefined repositories to history
         for (int i = availableProjects.size() - 1; i >= 0; i--) {
-            dialog.prependToHistory(GerritSettings.getInstance().getHost() + '/' + availableProjects.get(i).getDecodedId());
+            dialog.prependToHistory(gerritSettings.getHost() + '/' + availableProjects.get(i).getDecodedId());
         }
         dialog.show();
         if (!dialog.isOK()) {
             return;
         }
         dialog.rememberSettings();
-        final VirtualFile destinationParent = LocalFileSystem.getInstance().findFileByIoFile(new File(dialog.getParentDirectory()));
+        final VirtualFile destinationParent = localFileSystem.findFileByIoFile(new File(dialog.getParentDirectory()));
         if (destinationParent == null) {
             return;
         }
@@ -129,16 +150,40 @@ public class GerritCheckoutProvider implements CheckoutProvider {
 
     private void setupCommitMsgHook(String parentDirectory, String directoryName, Project project) {
         try {
-            GerritSettings settings = GerritSettings.getInstance();
-            HttpMethod method = GerritApiUtil.doREST(GerritApiUtil.getApiUrl(), settings.getLogin(), settings.getPassword(),
+            HttpMethod method = gerritApiUtil.doREST(
                     "/a/tools/hooks/commit-msg", null, Collections.<Header>emptyList(), GerritApiUtil.HttpVerb.GET);
+            if (method.getStatusCode() != 200) {
+                throw new HttpStatusException(method.getStatusCode(), method.getStatusText(), method.getStatusText());
+            }
             File targetFile = new File(parentDirectory + '/' + directoryName + "/.git/hooks/commit-msg");
             Files.write(method.getResponseBody(), targetFile);
             targetFile.setExecutable(true);
-        } catch (IOException e) {
-            LOG.info(e);
-            GerritUtil.notifyError(project, "Couldn't set up Gerrit Commit-Message Hook. Please do it manually.",
-                    GerritUtil.getErrorTextFromException(e));
+        } catch (Exception e) {
+            log.info(e);
+            NotificationBuilder notification = new NotificationBuilder(
+                    project,
+                    "Couldn't set up Gerrit Commit-Message Hook. Please do it manually.",
+                    gerritUtil.getErrorTextFromException(e));
+            notificationService.notifyError(notification);
+        }
+    }
+
+    public static final class Proxy implements CheckoutProvider {
+        private final CheckoutProvider delegate;
+
+        public Proxy() {
+            delegate = GerritModule.getInstance(GerritCheckoutProvider.class);
+        }
+
+        @Override
+        public void doCheckout(@NotNull Project project, @Nullable Listener listener) {
+            delegate.doCheckout(project, listener);
+        }
+
+        @Override
+        @NonNls
+        public String getVcsName() {
+            return delegate.getVcsName();
         }
     }
 }

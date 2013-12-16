@@ -29,10 +29,10 @@ import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.spellchecker.ui.SpellCheckingEditorCustomization;
 import com.intellij.ui.*;
 import com.intellij.util.containers.ContainerUtil;
+import com.urswolfer.intellij.plugin.gerrit.ReviewCommentSink;
 import com.urswolfer.intellij.plugin.gerrit.git.GerritGitUtil;
 import com.urswolfer.intellij.plugin.gerrit.rest.bean.ChangeInfo;
 import com.urswolfer.intellij.plugin.gerrit.rest.bean.CommentInput;
-import com.urswolfer.intellij.plugin.gerrit.ui.ReviewCommentSink;
 import git4idea.repo.GitRepository;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -55,73 +55,77 @@ public class CommentForm extends JPanel {
     private static final int ourBalloonWidth = 350;
     private static final int ourBalloonHeight = 200;
 
-    private final EditorTextField myReviewTextField;
-    private JBPopup myBalloon;
+    private final EditorTextField reviewTextField;
+    private JBPopup balloon;
 
-    private Editor myEditor;
+    private Editor editor;
     @Nullable
-    private FilePath myFilePath;
-    private CommentInput myComment;
+    private FilePath filePath;
+    private CommentInput commentInput;
 
-    public CommentForm(@NotNull final Project project, @Nullable FilePath filePath, final ReviewCommentSink reviewCommentSink, final ChangeInfo changeInfo) {
+    public CommentForm(@NotNull final Project project,
+                       @Nullable FilePath filePath,
+                       final ReviewCommentSink reviewCommentSink,
+                       final ChangeInfo changeInfo,
+                       final GerritGitUtil gerritGitUtil) {
         super(new BorderLayout());
-        myFilePath = filePath;
+        this.filePath = filePath;
 
         final EditorTextFieldProvider service = ServiceManager.getService(project, EditorTextFieldProvider.class);
         final Set<EditorCustomization> editorFeatures = ContainerUtil.newHashSet();
         editorFeatures.add(SoftWrapsEditorCustomization.ENABLED);
         editorFeatures.add(SpellCheckingEditorCustomization.ENABLED);
-        myReviewTextField = service.getEditorField(PlainTextLanguage.INSTANCE, project, editorFeatures);
+        reviewTextField = service.getEditorField(PlainTextLanguage.INSTANCE, project, editorFeatures);
 
-        final JScrollPane pane = ScrollPaneFactory.createScrollPane(myReviewTextField);
+        final JScrollPane pane = ScrollPaneFactory.createScrollPane(reviewTextField);
         pane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         add(pane);
 
-        myReviewTextField.setPreferredSize(new Dimension(ourBalloonWidth, ourBalloonHeight));
+        reviewTextField.setPreferredSize(new Dimension(ourBalloonWidth, ourBalloonHeight));
 
-        myReviewTextField.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).
+        reviewTextField.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).
                 put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK), "postComment");
-        myReviewTextField.getActionMap().put("postComment", new AbstractAction() {
+        reviewTextField.getActionMap().put("postComment", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 CommentInput comment = new CommentInput();
 
-                Optional<GitRepository> gitRepositoryOptional = GerritGitUtil.getRepositoryForGerritProject(project, changeInfo.getProject());
+                Optional<GitRepository> gitRepositoryOptional = gerritGitUtil.getRepositoryForGerritProject(project, changeInfo.getProject());
                 if (!gitRepositoryOptional.isPresent()) return;
                 GitRepository gitRepository = gitRepositoryOptional.get();
                 VirtualFile root = gitRepository.getRoot();
-                String path = myFilePath.getPath();
+                String path = CommentForm.this.filePath.getPath();
                 String relativePath = FileUtil.getRelativePath(new File(root.getPath()), new File(path));
 
                 comment.setPath(relativePath);
-                comment.setLine(myEditor.getDocument().getLineNumber(myEditor.getCaretModel().getOffset()) + 1);
+                comment.setLine(editor.getDocument().getLineNumber(editor.getCaretModel().getOffset()) + 1);
                 comment.setMessage(getText());
                 reviewCommentSink.addComment(changeInfo.getId(), comment);
 
-                myComment = comment;
-                myBalloon.dispose();
+                commentInput = comment;
+                balloon.dispose();
             }
         });
     }
 
     public void requestFocus() {
-        IdeFocusManager.findInstanceByComponent(myReviewTextField).requestFocus(myReviewTextField, true);
+        IdeFocusManager.findInstanceByComponent(reviewTextField).requestFocus(reviewTextField, true);
     }
 
     @NotNull
     public String getText() {
-        return myReviewTextField.getText();
+        return reviewTextField.getText();
     }
 
     public void setBalloon(@NotNull final JBPopup balloon) {
-        myBalloon = balloon;
+        this.balloon = balloon;
     }
 
     public void setEditor(@NotNull final Editor editor) {
-        myEditor = editor;
+        this.editor = editor;
     }
 
     public CommentInput getComment() {
-        return myComment;
+        return commentInput;
     }
 }

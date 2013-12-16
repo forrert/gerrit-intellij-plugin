@@ -21,8 +21,8 @@ import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ServiceManager;
+import com.google.inject.Inject;
+import com.intellij.openapi.application.Application;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -38,6 +38,8 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.urswolfer.intellij.plugin.gerrit.rest.GerritUtil;
 import com.urswolfer.intellij.plugin.gerrit.rest.bean.ChangeInfo;
+import com.urswolfer.intellij.plugin.gerrit.util.NotificationBuilder;
+import com.urswolfer.intellij.plugin.gerrit.util.NotificationService;
 import git4idea.GitExecutionException;
 import git4idea.GitPlatformFacade;
 import git4idea.GitUtil;
@@ -71,12 +73,30 @@ import static git4idea.commands.GitSimpleEventDetector.Event.LOCAL_CHANGES_OVERW
  * @author Urs Wolfer
  */
 public class GerritGitUtil {
-    private static final Logger LOG = GerritUtil.LOG;
+    @Inject
+    private Logger log;
+    @Inject
+    private Git git;
+    @Inject
+    private GitPlatformFacade platformFacade;
+    @Inject
+    private FileDocumentManager fileDocumentManager;
+    @Inject
+    private Application application;
+    @Inject
+    private VirtualFileManager virtualFileManager;
+    @Inject
+    private GerritUtil gerritUtil;
+    @Inject
+    private NotificationService notificationService;
 
-    public static Optional<GitRepository> getRepositoryForGerritProject(Project project, String gerritProjectName) {
+    public Iterable<GitRepository> getRepositories(Project project) {
         GitRepositoryManager repositoryManager = GitUtil.getRepositoryManager(project);
-        final Collection<GitRepository> repositoriesFromRoots = repositoryManager.getRepositories();
+        return repositoryManager.getRepositories();
+    }
 
+    public Optional<GitRepository> getRepositoryForGerritProject(Project project, String gerritProjectName) {
+        final Iterable<GitRepository> repositoriesFromRoots = getRepositories(project);
         for (GitRepository repository : repositoriesFromRoots) {
             for (GitRemote remote : repository.getRemotes()) {
                 for (String remoteUrl : remote.getUrls()) {
@@ -87,11 +107,13 @@ public class GerritGitUtil {
                 }
             }
         }
-        GerritUtil.notifyError(project, "Error", String.format("No repository found for Gerrit project: '%s'.", gerritProjectName));
+        NotificationBuilder notification = new NotificationBuilder(project, "Error",
+                String.format("No repository found for Gerrit project: '%s'.", gerritProjectName));
+        notificationService.notifyError(notification);
         return Optional.absent();
     }
 
-    public static void fetchChange(final Project project, final GitRepository gitRepository, final String branch, @Nullable final Callable<Void> successCallable) {
+    public void fetchChange(final Project project, final GitRepository gitRepository, final String branch, @Nullable final Callable<Void> successCallable) {
         GitVcs.runInBackground(new Task.Backgroundable(project, "Fetching...", false) {
             @Override
             public void onSuccess() {
@@ -110,16 +132,13 @@ public class GerritGitUtil {
                 final VirtualFile virtualFile = gitRepository.getGitDir();
                 final GitRemote gitRemote = Iterables.get(gitRepository.getRemotes(), 0);
                 final String url = Iterables.get(gitRepository.getRemotes(), 0).getFirstUrl();
-                GerritGitUtil.fetchNatively(virtualFile, gitRemote, url, branch, project, indicator);
+                fetchNatively(virtualFile, gitRemote, url, branch, project, indicator);
             }
         });
     }
 
-    public static void cherryPickChange(final Project project, final ChangeInfo changeInfo) {
-        final Git git = ServiceManager.getService(Git.class);
-        final GitPlatformFacade platformFacade = ServiceManager.getService(GitPlatformFacade.class);
-
-        FileDocumentManager.getInstance().saveAllDocuments();
+    public void cherryPickChange(final Project project, final ChangeInfo changeInfo) {
+        fileDocumentManager.saveAllDocuments();
         platformFacade.getChangeListManager(project).blockModalNotifications();
 
         new Task.Backgroundable(project, "Cherry-picking...", false) {
@@ -140,10 +159,9 @@ public class GerritGitUtil {
 
                     cherryPick(gitRepository, gitCommit, git, platformFacade, project);
                 } finally {
-                    ApplicationManager.getApplication().invokeLater(new Runnable() {
+                    application.invokeLater(new Runnable() {
                         public void run() {
-                            VirtualFileManager.getInstance().syncRefresh();
-
+                            virtualFileManager.syncRefresh();
                             platformFacade.getChangeListManager(project).unblockModalNotifications();
                         }
                     });
@@ -155,7 +173,7 @@ public class GerritGitUtil {
     /**
      * A lot of this code is based on: git4idea.cherrypick.GitCherryPicker#cherryPick() (which is private)
      */
-    private static boolean cherryPick(@NotNull GitRepository repository, @NotNull GitCommit commit,
+    private boolean cherryPick(@NotNull GitRepository repository, @NotNull GitCommit commit,
                                       @NotNull Git git, @NotNull GitPlatformFacade platformFacade, @NotNull Project project) {
         GitSimpleEventDetector conflictDetector = new GitSimpleEventDetector(CHERRY_PICK_CONFLICT);
         GitSimpleEventDetector localChangesOverwrittenDetector = new GitSimpleEventDetector(LOCAL_CHANGES_OVERWRITTEN_BY_CHERRY_PICK);
@@ -177,11 +195,12 @@ public class GerritGitUtil {
                     "cherry-pick", description);
             return false;
         } else if (localChangesOverwrittenDetector.hasHappened()) {
-            GerritUtil.notifyError(project, "Cherry-Pick Error",
-                    "Your local changes would be overwritten by cherry-pick.<br/>Commit your changes or stash them to proceed.");
+            notificationService.notifyError(new NotificationBuilder(project, "Cherry-Pick Error",
+                    "Your local changes would be overwritten by cherry-pick.<br/>Commit your changes or stash them to proceed."));
             return false;
         } else {
-            GerritUtil.notifyError(project, "Cherry-Pick Error", result.getErrorOutputAsHtmlString());
+            notificationService.notifyError(new NotificationBuilder(project, "Cherry-Pick Error",
+                    result.getErrorOutputAsHtmlString()));
             return false;
         }
     }
@@ -244,12 +263,12 @@ public class GerritGitUtil {
     }
 
     @NotNull
-    public static GitFetchResult fetchNatively(@NotNull VirtualFile root,
-                                               @NotNull GitRemote remote,
-                                               @NotNull String url,
-                                               @Nullable String branch,
-                                               Project project,
-                                               ProgressIndicator progressIndicator) {
+    public GitFetchResult fetchNatively(@NotNull VirtualFile root,
+                                        @NotNull GitRemote remote,
+                                        @NotNull String url,
+                                        @Nullable String branch,
+                                        Project project,
+                                        ProgressIndicator progressIndicator) {
         final GitLineHandlerPasswordRequestAware h = new GitLineHandlerPasswordRequestAware(project, root, GitCommand.FETCH);
         h.setUrl(url);
         h.addProgressParameter();
@@ -273,13 +292,13 @@ public class GerritGitUtil {
 
             @Override
             protected void onCancel() {
-                LOG.info("Cancelled fetch.");
+                log.info("Cancelled fetch.");
                 result.set(GitFetchResult.cancel());
             }
 
             @Override
             protected void onFailure() {
-                LOG.info("Error fetching: " + h.errors());
+                log.info("Error fetching: " + h.errors());
                 Collection<Exception> errors = Lists.newArrayList();
                 if (!h.hadAuthRequest()) {
                     errors.addAll(h.errors());
@@ -295,7 +314,7 @@ public class GerritGitUtil {
 
 
     @NotNull
-    public static Pair<List<GitCommit>, List<GitCommit>> loadCommitsToCompare(@NotNull GitRepository repository, @NotNull final String branchName, @NotNull final Project project) {
+    public Pair<List<GitCommit>, List<GitCommit>> loadCommitsToCompare(@NotNull GitRepository repository, @NotNull final String branchName, @NotNull final Project project) {
         final List<GitCommit> headToBranch;
         final List<GitCommit> branchToHead;
         try {
@@ -309,7 +328,7 @@ public class GerritGitUtil {
     }
 
     @NotNull
-    public static GitCommitCompareInfo loadCommitsToCompare(Collection<GitRepository> repositories, String branchName, @NotNull final Project project) {
+    public GitCommitCompareInfo loadCommitsToCompare(Collection<GitRepository> repositories, String branchName, @NotNull final Project project) {
         GitCommitCompareInfo compareInfo = new GitCommitCompareInfo();
         for (GitRepository repository : repositories) {
             compareInfo.put(repository, loadCommitsToCompare(repository, branchName, project));

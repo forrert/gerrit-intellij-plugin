@@ -21,15 +21,14 @@ import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.project.Project;
-import com.urswolfer.intellij.plugin.gerrit.GerritSettings;
-import com.urswolfer.intellij.plugin.gerrit.rest.GerritApiUtil;
-import com.urswolfer.intellij.plugin.gerrit.rest.GerritUtil;
+import com.urswolfer.intellij.plugin.gerrit.GerritModule;
 import com.urswolfer.intellij.plugin.gerrit.rest.bean.ChangeInfo;
 import com.urswolfer.intellij.plugin.gerrit.rest.bean.SubmitInput;
 
 /**
  * @author Urs Wolfer
  */
+@SuppressWarnings("ComponentNotRegistered") // proxy class below is registered
 public class SubmitAction extends AbstractChangeAction {
 
     public SubmitAction() {
@@ -38,18 +37,26 @@ public class SubmitAction extends AbstractChangeAction {
 
     @Override
     public void actionPerformed(AnActionEvent anActionEvent) {
-        final GerritSettings settings = GerritSettings.getInstance();
         final Project project = anActionEvent.getData(PlatformDataKeys.PROJECT);
 
         Optional<ChangeInfo> selectedChange = getSelectedChange(anActionEvent);
         if (!selectedChange.isPresent()) {
             return;
         }
-        final Optional<ChangeInfo> changeDetails = getChangeDetail(selectedChange.get(), project);
-        if (!changeDetails.isPresent()) return;
+        SubmitInput submitInput = new SubmitInput();
+        gerritUtil.postSubmit(selectedChange.get().getId(), submitInput, project);
+    }
 
-        final SubmitInput submitInput = new SubmitInput();
-        GerritUtil.postSubmit(GerritApiUtil.getApiUrl(), settings.getLogin(), settings.getPassword(),
-                changeDetails.get().getId(), submitInput, project);
+    public static class Proxy extends SubmitAction {
+        private final SubmitAction delegate;
+
+        public Proxy() {
+            delegate = GerritModule.getInstance(SubmitAction.class);
+        }
+
+        @Override
+        public void actionPerformed(AnActionEvent e) {
+            delegate.actionPerformed(e);
+        }
     }
 }

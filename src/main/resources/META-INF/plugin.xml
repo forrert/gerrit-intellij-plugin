@@ -16,7 +16,7 @@
 <idea-plugin version="2">
   <id>com.urswolfer.intellij.plugin.gerrit</id>
   <name>Gerrit</name>
-  <version>0.4.0</version>
+  <version>0.4.1</version>
   <vendor email="uwolfer@fwo.ch" url="https://github.com/uwolfer/gerrit-intellij-plugin">Urs Wolfer</vendor>
 
   <description><![CDATA[
@@ -29,10 +29,6 @@
       </p>
 
       <p>
-        <strong>IMPORTANT NOTE:</strong> This plugin is in early development state. Use at own risk.
-      </p>
-
-      <p>
         Features:
         <ul>
           <li>Do reviews directly from your IDE (voting and commenting)</li>
@@ -40,25 +36,28 @@
           <li>Compare (Diff) changes against your local clone (much more comfortable than in Web UI because of well known syntax highlighting and other IDE features)</li>
           <li>Submit changes</li>
           <li>Notifications for new changes which are waiting for your review</li>
-          <li>Cherry-Pick / (Planned Feature) Merge change into your local clone</li>
+          <li>Cherry-Pick changes into your local clone</li>
           <li>File and line based comments (<strong>Gerrit 2.7 or newer only</strong>)<br />
           Usage: Add new comments in file diff window with right click on line; remove not yet submitted comments with a
            click on comment icon. Comments need to be submitted with "Submit" or any "+/-" action.
           </li>
           <li>Clone and set up (add commit message hook) Gerrit projects directly</li>
-          <li>(Planned Feature) Add reviewers to changes</li>
         </ul>
       </p>
 
       <p>
-        Limitations:
+        If you find any issues, please report them (please use the GitHub issue tracker instead of review comments).
+      </p>
+
+      <p>
+        If you like this plugin, you can support it:
         <ul>
-          <li>Only Native Git Mode is supported</li>
+          <li>Spread it: Tell your friends who are using IntelliJ and Gerrit about this plugin (or even bring them to use these fantastic products!)</li>
+          <li>Vote for it: Write your review and vote for it at the <a href="http://plugins.jetbrains.com/plugin/7272">IntelliJ plugin repository</a>.</li>
+          <li>Star it: <a href="https://github.com/uwolfer/gerrit-intellij-plugin/star">Star it at GitHub</a>. GitHub account required.</li>
+          <li>Improve it: Report bugs or feature requests. Or even fix / implement them by yourself - everything is open source!</li>
+          <li>Donate: You can find donation-possibilities in the <a href="https://github.com/uwolfer/gerrit-intellij-plugin/blob/master/README.md">README</a> file (at the bottom).</li>
         </ul>
-      </p>
-
-      <p>
-        If you find any issues, please report them.
       </p>
       ]]></description>
 
@@ -69,6 +68,27 @@
 
       <p>
         <ul>
+          <li>0.5</li>
+          <ul>
+            <li>display code review and verified status in list</li>
+            <li>show comments (and actions) in change detail panel</li>
+            <li>add filters for changes list (fulltext, status, branch, owner, reviewer, starred changes)</li>
+            <li>asynchronously load data from Gerrit (UI does not block anymore when connection is slow)</li>
+            <li>improve review notifications (show after start even when Gerrit tool window is not open)</li>
+            <li>add setting to show all changes (instead of changes from current project only)</li>
+            <li>fix remembering self-signed certs</li>
+            <li>fix for self signed ssl connections</li>
+            <li>internal: migrate to Google Guice for dependency management (major refactoring)</li>
+            <li>many minor fixes and improvements</li>
+          </ul>
+          <li>0.4.1</li>
+          <ul>
+            <li>performance improvement (reduced HTTP transfer sizes)</li>
+            <li>add support for HTTPS servers on non-default port with self-signed certs</li>
+            <li>fix timezone handling</li>
+            <li>improve HTTP authentication flow (again!) (everyone who had authentication issues should try again)</li>
+            <li>many minor fixes and improvements</li>
+          </ul>
           <li>0.4.0</li>
           <ul>
             <li>improve HTTP authentication flow (everyone who had authentication issues should try again)</li>
@@ -112,28 +132,42 @@
   <depends>com.intellij.modules.lang</depends>
   <depends>Git4Idea</depends>
 
+  <project-components>
+    <component>
+      <interface-class>com.intellij.openapi.components.ProjectComponent</interface-class>
+      <implementation-class>com.urswolfer.intellij.plugin.gerrit.ui.GerritUpdatesNotificationComponent$Proxy</implementation-class>
+    </component>
+  </project-components>
+
   <extensions defaultExtensionNs="com.intellij">
-    <checkoutProvider implementation="com.urswolfer.intellij.plugin.gerrit.extension.GerritCheckoutProvider"/>
+    <checkoutProvider implementation="com.urswolfer.intellij.plugin.gerrit.extension.GerritCheckoutProvider$Proxy"/>
     <applicationService serviceInterface="com.urswolfer.intellij.plugin.gerrit.GerritSettings"
                         serviceImplementation="com.urswolfer.intellij.plugin.gerrit.GerritSettings"/>
-    <applicationService serviceInterface="com.urswolfer.intellij.plugin.gerrit.rest.SslSupport"
-                        serviceImplementation="com.urswolfer.intellij.plugin.gerrit.rest.SslSupport"/>
-    <vcsConfigurableProvider implementation="com.urswolfer.intellij.plugin.gerrit.ui.GerritSettingsConfigurable"/>
+    <vcsConfigurableProvider implementation="com.urswolfer.intellij.plugin.gerrit.ui.GerritSettingsConfigurable$Proxy"/>
 
     <toolWindow id="Gerrit" icon="/icons/gerrit.png" anchor="bottom" factoryClass="com.urswolfer.intellij.plugin.gerrit.ui.GerritToolWindowFactory">
     </toolWindow>
   </extensions>
 
   <extensions defaultExtensionNs="Git4Idea">
-    <GitHttpAuthDataProvider implementation="com.urswolfer.intellij.plugin.gerrit.extension.GerritHttpAuthDataProvider"/>
+    <GitHttpAuthDataProvider implementation="com.urswolfer.intellij.plugin.gerrit.extension.GerritHttpAuthDataProvider$Proxy"/>
   </extensions>
 
   <actions>
-    <action id="Gerrit.CherryPick" class="com.urswolfer.intellij.plugin.gerrit.ui.action.CherryPickAction" text="Cherry-Pick (No Commit)"/>
-    <action id="Gerrit.CompareBranch" class="com.urswolfer.intellij.plugin.gerrit.ui.action.CompareBranchAction" text="Compare with Branch"/>
-    <action id="Gerrit.Fetch" class="com.urswolfer.intellij.plugin.gerrit.ui.action.FetchAction" text="Fetch"/>
-    <action id="Gerrit.OpenInBrowser" class="com.urswolfer.intellij.plugin.gerrit.ui.action.OpenInBrowserAction" text="Open in Gerrit"/>
-    <action id="Gerrit.Settings" class="com.urswolfer.intellij.plugin.gerrit.ui.action.SettingsAction" text="Settings"/>
-    <action id="Gerrit.Submit" class="com.urswolfer.intellij.plugin.gerrit.ui.action.SubmitAction" text="Submit"/>
+    <action id="Gerrit.CherryPick"
+            class="com.urswolfer.intellij.plugin.gerrit.ui.action.CherryPickAction$Proxy"
+            text="Cherry-Pick (No Commit)"/>
+    <action id="Gerrit.CompareBranch"
+            class="com.urswolfer.intellij.plugin.gerrit.ui.action.CompareBranchAction$Proxy"
+            text="Compare with Branch"/>
+    <action id="Gerrit.OpenInBrowser"
+            class="com.urswolfer.intellij.plugin.gerrit.ui.action.OpenInBrowserAction$Proxy"
+            text="Open in Gerrit"/>
+    <action id="Gerrit.Settings"
+            class="com.urswolfer.intellij.plugin.gerrit.ui.action.SettingsAction$Proxy"
+            text="Settings"/>
+    <action id="Gerrit.Submit"
+            class="com.urswolfer.intellij.plugin.gerrit.ui.action.SubmitAction$Proxy"
+            text="Submit"/>
   </actions>
 </idea-plugin>

@@ -17,51 +17,38 @@
 package com.urswolfer.intellij.plugin.gerrit.ui.action;
 
 import com.google.common.base.Optional;
-import com.intellij.icons.AllIcons;
-import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
+import com.google.inject.Inject;
 import com.intellij.openapi.project.Project;
+import com.intellij.util.Consumer;
 import com.urswolfer.intellij.plugin.gerrit.git.GerritGitUtil;
 import com.urswolfer.intellij.plugin.gerrit.rest.GerritUtil;
 import com.urswolfer.intellij.plugin.gerrit.rest.bean.ChangeInfo;
 import git4idea.repo.GitRepository;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.concurrent.Callable;
 
 /**
  * @author Urs Wolfer
  */
-public class FetchAction extends AbstractChangeAction {
+public class FetchAction {
+    @Inject
+    private GerritUtil gerritUtil;
+    @Inject
+    private GerritGitUtil gerritGitUtil;
 
-    @Nullable
-    private final Callable<Void> mySuccessCallable;
 
-    public FetchAction() {
-        this(null);
+    public void fetchChange(ChangeInfo selectedChange, final Project project, final Callable<Void> successCallable) {
+        gerritUtil.getChangeDetails(selectedChange.getNumber(), project, new Consumer<ChangeInfo>() {
+            @Override
+            public void consume(ChangeInfo changeInfo) {
+                String ref = gerritUtil.getRef(changeInfo);
+
+                Optional<GitRepository> gitRepository = gerritGitUtil.getRepositoryForGerritProject(project, changeInfo.getProject());
+                if (!gitRepository.isPresent()) return;
+
+                gerritGitUtil.fetchChange(project, gitRepository.get(), ref, successCallable);
+            }
+        });
     }
 
-    public FetchAction(@Nullable Callable<Void> successCallable) {
-        super("Fetch", "Fetch change", AllIcons.Actions.Download);
-        this.mySuccessCallable = successCallable;
-    }
-
-    @Override
-    public void actionPerformed(AnActionEvent anActionEvent) {
-        Optional<ChangeInfo> selectedChange = getSelectedChange(anActionEvent);
-        if (!selectedChange.isPresent()) {
-            return;
-        }
-        final Project project = anActionEvent.getData(PlatformDataKeys.PROJECT);
-
-        final Optional<ChangeInfo> changeDetails = getChangeDetail(selectedChange.get(), project);
-        if (!changeDetails.isPresent()) return;
-
-        String ref = GerritUtil.getRef(changeDetails.get());
-
-        Optional<GitRepository> gitRepository = GerritGitUtil.getRepositoryForGerritProject(project, changeDetails.get().getProject());
-        if (!gitRepository.isPresent()) return;
-
-        GerritGitUtil.fetchChange(project, gitRepository.get(), ref, mySuccessCallable);
-    }
 }

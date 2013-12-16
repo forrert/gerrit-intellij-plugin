@@ -21,17 +21,15 @@ import com.google.common.base.Strings;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.project.Project;
-import com.urswolfer.intellij.plugin.gerrit.GerritSettings;
-import com.urswolfer.intellij.plugin.gerrit.rest.GerritApiUtil;
+import com.intellij.util.Consumer;
+import com.urswolfer.intellij.plugin.gerrit.ReviewCommentSink;
 import com.urswolfer.intellij.plugin.gerrit.rest.GerritUtil;
 import com.urswolfer.intellij.plugin.gerrit.rest.bean.ChangeInfo;
 import com.urswolfer.intellij.plugin.gerrit.rest.bean.CommentInput;
 import com.urswolfer.intellij.plugin.gerrit.rest.bean.ReviewInput;
-import com.urswolfer.intellij.plugin.gerrit.ui.ReviewCommentSink;
 import com.urswolfer.intellij.plugin.gerrit.ui.ReviewDialog;
 
 import javax.swing.*;
-import java.util.List;
 
 /**
  * @author Urs Wolfer
@@ -44,58 +42,71 @@ public class ReviewAction extends AbstractChangeAction {
     private final String label;
     private final int rating;
     private final boolean showDialog;
-    private final ReviewCommentSink myReviewCommentSink;
+    private final ReviewCommentSink reviewCommentSink;
+    private final SubmitAction submitAction;
 
-    public ReviewAction(String label, int rating, Icon icon, boolean showDialog, ReviewCommentSink reviewCommentSink) {
+    public ReviewAction(String label, int rating, Icon icon, boolean showDialog,
+                        ReviewCommentSink reviewCommentSink,
+                        GerritUtil gerritUtil,
+                        SubmitAction submitAction) {
         super((rating > 0 ? "+" : "") + rating + (showDialog ? "..." : ""), "Review Change with " + rating, icon);
         this.label = label;
         this.rating = rating;
         this.showDialog = showDialog;
-        myReviewCommentSink = reviewCommentSink;
+        this.submitAction = submitAction;
+        this.gerritUtil = gerritUtil;
+        this.reviewCommentSink = reviewCommentSink;
     }
 
     @Override
-    public void actionPerformed(AnActionEvent anActionEvent) {
-        final GerritSettings settings = GerritSettings.getInstance();
+    public void actionPerformed(final AnActionEvent anActionEvent) {
         final Project project = anActionEvent.getData(PlatformDataKeys.PROJECT);
 
         Optional<ChangeInfo> selectedChange = getSelectedChange(anActionEvent);
         if (!selectedChange.isPresent()) {
             return;
         }
-        final Optional<ChangeInfo> changeDetailsOptional = getChangeDetail(selectedChange.get(), project);
-        if (!changeDetailsOptional.isPresent()) return;
-        ChangeInfo changeDetails = changeDetailsOptional.get();
+        getChangeDetail(selectedChange.get(), project, new Consumer<ChangeInfo>() {
+            @Override
+            public void consume(final ChangeInfo changeDetails) {
+                final ReviewInput reviewInput = new ReviewInput();
+                reviewInput.addLabel(label, rating);
 
-        final ReviewInput reviewInput = new ReviewInput();
-        reviewInput.addLabel(label, rating);
+                Iterable<CommentInput> commentInputs = reviewCommentSink.getCommentsForChange(changeDetails.getId());
+                for (CommentInput commentInput : commentInputs) {
+                    reviewInput.addComment(commentInput.getPath(), commentInput);
+                }
 
-        List<CommentInput> commentInputs = myReviewCommentSink.getCommentsForChange(changeDetails.getId());
-        for (CommentInput commentInput : commentInputs) {
-            reviewInput.addComment(commentInput.getPath(), commentInput);
-        }
+                boolean submitChange = false;
+                if (showDialog) {
+                    final ReviewDialog dialog = new ReviewDialog();
+                    dialog.show();
+                    if (!dialog.isOK()) {
+                        return;
+                    }
+                    final String message = dialog.getReviewPanel().getMessage();
+                    if (!Strings.isNullOrEmpty(message)) {
+                        reviewInput.setMessage(message);
+                    }
+                    submitChange = dialog.getReviewPanel().getSubmitChange();
+                }
 
-        boolean submitChange = false;
-        if (showDialog) {
-            final ReviewDialog dialog = new ReviewDialog();
-            dialog.show();
-            if (!dialog.isOK()) {
-                return;
+                final boolean finalSubmitChange = submitChange;
+                gerritUtil.postReview(changeDetails.getId(),
+                        changeDetails.getCurrentRevision(),
+                        reviewInput,
+                        project,
+                        new Consumer<Void>() {
+                            @Override
+                            public void consume(Void result) {
+                                reviewCommentSink.removeCommentsForChange(changeDetails.getId());
+                                if (finalSubmitChange) {
+                                    submitAction.actionPerformed(anActionEvent);
+                                }
+                            }
+                        }
+                );
             }
-            final String message = dialog.getReviewPanel().getMessage();
-            if (!Strings.isNullOrEmpty(message)) {
-                reviewInput.setMessage(message);
-            }
-            submitChange = dialog.getReviewPanel().getSubmitChange();
-        }
-
-        GerritUtil.postReview(GerritApiUtil.getApiUrl(), settings.getLogin(), settings.getPassword(),
-                changeDetails.getId(), changeDetails.getCurrentRevision(), reviewInput, project);
-
-        if (submitChange) {
-            new SubmitAction().actionPerformed(anActionEvent);
-        }
-
-        myReviewCommentSink.getComments().remove(changeDetails.getId());
+        });
     }
 }
