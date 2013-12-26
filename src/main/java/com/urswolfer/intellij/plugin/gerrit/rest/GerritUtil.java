@@ -22,7 +22,10 @@ import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.*;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.inject.Inject;
 import com.intellij.idea.ActionsBundle;
 import com.intellij.notification.Notification;
@@ -41,7 +44,6 @@ import com.intellij.util.Consumer;
 import com.urswolfer.intellij.plugin.gerrit.GerritAuthData;
 import com.urswolfer.intellij.plugin.gerrit.GerritSettings;
 import com.urswolfer.intellij.plugin.gerrit.rest.bean.*;
-import com.urswolfer.intellij.plugin.gerrit.rest.gson.DateDeserializer;
 import com.urswolfer.intellij.plugin.gerrit.ui.LoginDialog;
 import com.urswolfer.intellij.plugin.gerrit.util.NotificationBuilder;
 import com.urswolfer.intellij.plugin.gerrit.util.NotificationService;
@@ -66,9 +68,6 @@ import java.util.concurrent.atomic.AtomicReference;
  * @author Konrad Dobrzynski
  */
 public class GerritUtil {
-
-    @NotNull private static final Gson gson = initGson();
-
     @Inject
     private GerritRestAccess gerritRestAccess;
     @Inject
@@ -81,13 +80,8 @@ public class GerritUtil {
     private Logger log;
     @Inject
     private NotificationService notificationService;
-
-    private static Gson initGson() {
-        GsonBuilder builder = new GsonBuilder();
-        builder.registerTypeAdapter(Date.class, new DateDeserializer());
-        builder.setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES);
-        return builder.create();
-    }
+    @Inject
+    private Gson gson;
 
     @Nullable
     public <T> T accessToGerritWithModalProgress(@NotNull final Project project,

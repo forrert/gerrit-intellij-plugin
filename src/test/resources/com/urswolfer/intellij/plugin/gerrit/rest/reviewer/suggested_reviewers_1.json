@@ -1,0 +1,18 @@
+)]}'
+[
+    {
+      "kind": "gerritcodereview#suggestedreviewer",
+      "account": {
+        "_account_id": 1000097,
+        "name": "Jane Roe",
+        "email": "jane.roe@example.com"
+      }
+    },
+    {
+      "kind": "gerritcodereview#suggestedreviewer",
+      "group": {
+        "id": "4fd581c0657268f2bdcc26699fbf9ddb76e3a279",
+        "name": "Joiner"
+      }
+    }
+  ]

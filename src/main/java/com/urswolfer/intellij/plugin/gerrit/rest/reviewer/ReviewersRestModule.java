@@ -14,20 +14,19 @@
  * limitations under the License.
  */
 
-package com.urswolfer.intellij.plugin.gerrit.rest;
+package com.urswolfer.intellij.plugin.gerrit.rest.reviewer;
 
 import com.google.inject.AbstractModule;
-import com.urswolfer.intellij.plugin.gerrit.rest.gson.GsonModule;
+import com.urswolfer.intellij.plugin.gerrit.rest.GerritRestModule;
 
 /**
  * @author Thomas Forrer
  */
-public class GerritRestModule extends AbstractModule {
+public class ReviewersRestModule extends AbstractModule {
     @Override
     protected void configure() {
-        install(new GsonModule());
-        bind(GerritRestAccess.class);
-        bind(GerritApiUtil.class);
-        bind(SslSupport.class);
+        install(new GerritRestModule());
+        bind(SuggestReviewersParser.class);
+        bind(SuggestReviewers.class);
     }
 }

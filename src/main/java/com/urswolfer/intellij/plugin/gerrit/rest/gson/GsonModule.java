@@ -14,20 +14,30 @@
  * limitations under the License.
  */
 
-package com.urswolfer.intellij.plugin.gerrit.rest;
+package com.urswolfer.intellij.plugin.gerrit.rest.gson;
 
+import com.google.gson.FieldNamingPolicy;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.inject.AbstractModule;
-import com.urswolfer.intellij.plugin.gerrit.rest.gson.GsonModule;
+import com.google.inject.Provider;
+
+import java.util.Date;
 
 /**
  * @author Thomas Forrer
  */
-public class GerritRestModule extends AbstractModule {
+public class GsonModule extends AbstractModule {
     @Override
     protected void configure() {
-        install(new GsonModule());
-        bind(GerritRestAccess.class);
-        bind(GerritApiUtil.class);
-        bind(SslSupport.class);
+        bind(Gson.class).toProvider(new Provider<Gson>() {
+            @Override
+            public Gson get() {
+                GsonBuilder builder = new GsonBuilder();
+                builder.registerTypeAdapter(Date.class, new DateDeserializer());
+                builder.setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES);
+                return builder.create();
+            }
+        }).asEagerSingleton();
     }
 }

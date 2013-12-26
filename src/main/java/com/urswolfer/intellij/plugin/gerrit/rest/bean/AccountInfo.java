@@ -21,7 +21,7 @@ import com.google.gson.annotations.SerializedName;
 /**
  * @author Urs Wolfer
  */
-public class AccountInfo {
+public class AccountInfo implements SuggestedReviewer {
     @SerializedName("_account_id")
     private String accountId;
     private String name;
@@ -36,8 +36,14 @@ public class AccountInfo {
         this.accountId = accountId;
     }
 
+    @Override
     public String getName() {
         return name;
+    }
+
+    @Override
+    public String getId() {
+        return email;
     }
 
     public void setName(String name) {
@@ -68,5 +74,29 @@ public class AccountInfo {
                 ", email='" + email + '\'' +
                 ", username='" + username + '\'' +
                 '}';
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        AccountInfo that = (AccountInfo) o;
+
+        if (!accountId.equals(that.accountId)) return false;
+        if (!email.equals(that.email)) return false;
+        if (!name.equals(that.name)) return false;
+        if (username != null ? !username.equals(that.username) : that.username != null) return false;
+
+        return true;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = accountId.hashCode();
+        result = 31 * result + name.hashCode();
+        result = 31 * result + email.hashCode();
+        result = 31 * result + (username != null ? username.hashCode() : 0);
+        return result;
     }
 }

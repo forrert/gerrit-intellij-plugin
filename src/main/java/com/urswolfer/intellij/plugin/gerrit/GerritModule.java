@@ -28,6 +28,7 @@ import com.urswolfer.intellij.plugin.gerrit.extension.GerritHttpAuthDataProvider
 import com.urswolfer.intellij.plugin.gerrit.git.GerritGitUtil;
 import com.urswolfer.intellij.plugin.gerrit.rest.GerritRestModule;
 import com.urswolfer.intellij.plugin.gerrit.rest.GerritUtil;
+import com.urswolfer.intellij.plugin.gerrit.rest.reviewer.ReviewersRestModule;
 import com.urswolfer.intellij.plugin.gerrit.ui.GerritToolWindow;
 import com.urswolfer.intellij.plugin.gerrit.ui.GerritUiModule;
 import com.urswolfer.intellij.plugin.gerrit.ui.action.GerritActionsModule;
@@ -70,7 +71,10 @@ public class GerritModule extends AbstractModule {
 
         install(new GerritActionsModule());
         install(new GerritDiffModule());
+
         install(new GerritRestModule());
+        install(new ReviewersRestModule());
+
         install(new GerritUiModule());
     }
 
